@@ -1,0 +1,489 @@
+/*
+*/
+import sprites.utils.*;
+import sprites.maths.*;
+import sprites.*;
+
+// Things that could be added-
+// highscore compatison at the end and text that reads the highscore
+// custom sprites - easist thing 
+// The dimensions of the monster grid.
+int monsterCols = 10; // 10
+int monsterRows = 5; // 5 defautkl
+int missileSpeed = 500;
+int fireballSpeed2 = 700;
+int fireballSpeed1 = 550;
+int fireballTimer = 50;
+int rndl = -20;
+int rndh = 70; 
+Boolean gameMode = true; // realistiicly woule be an int or something that can hold more values but there are only two so save space
+double upRadians = 4.71238898;
+double downRadians = -4.71238898;
+int idxf; // to keep track of the firemonster
+boolean shots = true;
+long mmCounter = 0;
+int mmStep = 1; 
+
+
+// Lower difficulty values introduce a more 
+// random falling monster descent. 
+int difficulty = 100;
+double fmRightAngle = 0.3490; // 20 degrees
+double fmLeftAngle = 2.79253; // 160 degrees
+double fmSpeed = 150;
+
+boolean gameOver = false;
+int score = 0; 
+int fallingMonsterPts = 20;
+int gridMonsterPts = 10;
+int missedShot = 5;
+int fallingGotAway = 50;
+int clearedScreen = 100;
+int dfireball = 3;
+int yOffset = 1;
+Sprite ship, missile, fallingMonster, explosion, gameOverSprite, fireball, fireMonster; // the current spite is a placeholder
+Sprite monsters[] = new Sprite[monsterCols * monsterRows];
+
+int []xStars = new int[5000];
+int []yStars = new int[5000];
+
+KeyboardController kbController;
+SoundPlayer soundPlayer;
+StopWatch stopWatch = new StopWatch();
+
+void setup() 
+{
+  kbController = new KeyboardController(this);
+  soundPlayer = new SoundPlayer(this);  
+  // Ship Explosion Sprite
+  explosion = new Sprite(this, "explosion_strip16.png", 17, 1, 90);
+  explosion.setScale(1);
+  // Game Over Sprite
+  gameOverSprite = new Sprite(this, "gameOver.png", 100);
+  gameOverSprite.setDead(true);
+  // register the function (pre) that will be called
+  // by Processing before the draw() function. 
+  registerMethod("pre", this);
+  size(700, 500);
+  S4P.messagesEnabled(true);
+  buildSprites();
+  resetMonsters();
+  initializeStars();
+}
+
+void buildSprites()
+{
+  // The Ship
+  ship = buildShip();
+  // The Grid Monsters 
+  buildMonsterGrid();
+  missile = buildMissile();
+  fireball = buildFireball();
+}
+
+Sprite buildShip()
+{
+  Sprite ship = new Sprite(this, "ship.png", 50);
+  ship.setXY(width/2, height - 30);
+  ship.setVelXY(0.0f, 0);
+  ship.setScale(.75);
+  ship.setRot(3.14159);
+  // Domain keeps the moving sprite withing specific screen area 
+  ship.setDomain(0, height-ship.getHeight(), width, height, Sprite.HALT);
+  return ship;
+}
+
+// Populate the monsters grid 
+void buildMonsterGrid() 
+{
+  for (int idx = 0; idx < monsters.length; idx++ ) {
+    monsters[idx] = buildMonster();
+  }
+}
+
+// Arrange Monsters into a grid
+void resetMonsters() 
+{
+  for (int idx = 0; idx < monsters.length; idx++ ) {
+    Sprite monster = monsters[idx];
+    monster.setSpeed(0, 0);
+    double mwidth = monster.getWidth() + 20;
+    double totalWidth = mwidth * monsterCols;
+    double start = (width*1.1 - totalWidth)/2 - 25;
+    double mheight = monster.getHeight();
+    int xpos = (int)((((idx % monsterCols)*mwidth)+start));
+    int ypos = (int)(((int)(idx / monsterCols)*mheight)+50);
+    monster.setXY(xpos, ypos);
+    monster.setDead(false);
+  }
+}
+
+// Build individual monster
+Sprite buildMonster() 
+{
+  Sprite monster = new Sprite(this, "monster.png", 30);
+  monster.setScale(.5);
+  monster.setDead(false);
+  return monster;
+}
+void initializeStars() {
+  for (int i = 0; i < 5000; i++) {
+    int x = (int)(random(700));
+    int y = (int)(random(1200))-600;
+    xStars[i] = x;
+    yStars[i] = y;
+  }
+}
+
+void drawStars() {
+  for (int i = 0; i < 5000; i++) {
+    if (yStars[i] + yOffset > 500) {
+      yStars[i] = (int)(random(1200))- 1200 - yOffset;
+    }
+    point(xStars[i], yStars[i] + yOffset);
+  }
+}
+void stopMissile() 
+{
+  missile.setSpeed(0, upRadians); 
+  missile.setDead(true);
+}
+
+void stopFireball()
+{
+  fireball.setSpeed(0, downRadians);
+  fireball.setDead(true);
+}
+
+
+// Executed before draw() is called 
+public void pre() 
+{    
+  checkKeys(); 
+  processCollisions(); 
+  moveMonsters(); 
+  // If missile flies off screen
+  if (!missile.isDead() && !missile.isOnScreem()) {
+    score -= missedShot; 
+    stopMissile();
+  }
+  if(!fireball.isDead() && !fireball.isOnScreem()){
+   score += dfireball; 
+   stopFireball();
+  }
+  if (pickNonDeadMonster() == null) {
+    if (gameOver != true)
+    {
+      score += clearedScreen;
+    }
+    resetMonsters();
+  }
+  // if falling monster is off screen
+  if (fallingMonster == null || !fallingMonster.isOnScreem()) { // I just realized its Screem not Screen - yikes
+    //-------------------------------------------------------------------------------------------------------------------------------------------------------------------
+    replaceFallingMonster();
+  }
+  S4P.updateSprites(stopWatch.getElapsedTime());
+} 
+
+// Pick the first monster on the grid that is not dead.
+// Return null if they are all dead.
+Sprite pickNonDeadMonster() 
+{
+  for (int idx = 0; idx < monsters.length; idx++) {
+    Sprite monster = monsters[idx]; 
+    if (!monster.isDead() && monster != fireMonster) {
+      shots = true;
+      return monster;
+    }
+    else if (monster == fireMonster)
+    {
+     shots = false; // THIS IS A FIX ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+     fireMonster = null;
+     return monster;
+    }
+  }
+  return null;
+}
+Sprite constpickNonDeadNonFallingMonster()
+{
+ while(fireMonster == null)
+ {
+ shots = false; 
+ int idxf = int(random(0, monsters.length));
+ Sprite monster = monsters[idxf];
+ if (!monster.isDead())
+  {
+   //score += idxf;// debuggingi
+   shots = true;
+   fireMonster = monsters[idxf];
+   return monster;
+  }
+ }
+ return null;
+}
+
+void fireMissile() 
+{
+  if (missile.isDead() && !ship.isDead()) {
+    missile.setPos(ship.getPos()); 
+    missile.setSpeed(missileSpeed, upRadians); 
+    missile.setDead(false);
+  }
+}
+void fireFireball()
+{
+ if (fireMonster != null){
+ if (fireball.isDead())
+ {
+  if (int(random(fireballTimer)) == 1)
+  {
+  fireball.setDead(false);
+  score += 10; //debuggginh
+  fireball.setPos(fireMonster.getPos());
+  fireball.setSpeed(random(fireballSpeed1,fireballSpeed2),downRadians);
+ }
+ }
+ }
+}
+
+
+void checkKeys() 
+{
+  if (focused) {
+    if (kbController.isLeft()) {
+      ship.setX(ship.getX()-10);
+    }
+    if (kbController.isRight()) {
+      ship.setX(ship.getX()+10);
+    }
+    if (kbController.isSpace()) {
+      fireMissile();
+    }
+  }
+}
+
+void moveMonsters() 
+{  
+  // Move Grid Monsters and fire monster
+  mmCounter++; 
+  if ((mmCounter % 100) == 0) mmStep *= -1; 
+  for (int idx = 0; idx < monsters.length; idx++ ) {
+    Sprite monster = monsters[idx]; 
+    if (!monster.isDead()&& monster != fallingMonster) {
+      monster.setXY(monster.getX()+mmStep, monster.getY());
+    }
+  }
+
+  // Move Falling Monster
+  if (fallingMonster != null) {
+    if (int(random(difficulty)) == 1) {
+      // Change FM Speed
+      fallingMonster.setSpeed(fallingMonster.getSpeed() 
+        + random(rndl, rndh)); // make it a bit harder
+      // Reverse FM direction.
+      if (fallingMonster.getDirection() == fmRightAngle) 
+        fallingMonster.setDirection(fmLeftAngle); 
+      else
+        fallingMonster.setDirection(fmRightAngle);
+    }
+  }
+}
+
+Sprite buildMissile()
+{
+  // The Missile
+  Sprite sprite  = new Sprite(this, "rocket.png", 10); 
+  sprite.setScale(.5); 
+  sprite.setDead(true); // Initially hide the missile
+  return sprite;
+}
+
+Sprite buildFireball()
+{
+ //for enemy fireball
+ Sprite sprite = new Sprite(this, "fireball.png", 10);
+ sprite.setScale(.5);
+ sprite.setDead(true); // initallly no fireball will go
+ return sprite;
+}
+
+// Detect collisions between sprites
+void processCollisions() 
+{
+  // Detect collisions between Grid Monsters and Missile
+  for (int idx = 0; idx < monsters.length; idx++) {
+    Sprite monster = monsters[idx]; 
+    if (!missile.isDead() && !monster.isDead() 
+      && monster != fallingMonster 
+      && monster != fireMonster && missile.bb_collision(monster)) {
+      //score += gridMonsterPts;
+      monster.setDead(true); 
+      if (monster == fireMonster)
+      {
+        replaceFireMonster();
+      }
+      //monster death sound
+      soundPlayer.playInline(); 
+      score += gridMonsterPts; 
+      missile.setDead(true);
+    }
+  }
+  // Between Falling Monster and Missile
+  if (!missile.isDead() && fallingMonster != null 
+    && missile.cc_collision(fallingMonster)) {
+    shots = false;
+    score += fallingMonsterPts; 
+    //falling monster death sound
+    fallingMonster.setDead(true); 
+    missile.setDead(true);
+    soundPlayer.playFlyer(); 
+    fallingMonster = null;
+    shots = true;
+  }
+
+  // Between Falling Monster and Ship
+  if (fallingMonster!= null && !ship.isDead() 
+    && fallingMonster.bb_collision(ship)) {
+    explodeShip(); 
+    fallingMonster.setDead(true); 
+    fallingMonster = null; 
+    gameOver = true;
+  }
+  //between fireball and ship
+  if(fireball != null && !ship.isDead() && fireball.bb_collision(ship))
+  {
+    shots = false;
+    fireball.setXY(0,0);
+    explodeShip();
+    fireball.setDead(true);
+    gameOver = true;
+  }
+  //between fireMonster ande ship
+ if (fireMonster != null && !missile.isDead() 
+    && fireMonster.bb_collision(missile)) { 
+    fireMonster.setDead(true); 
+    fireMonster = null; 
+    missile.setDead(true);
+    soundPlayer.playInline();
+    score += 10;
+    if (fallingMonster != null)
+    {
+    replaceFireMonster();
+    }
+    fireball.setDead(true);
+  }
+}
+
+
+void replaceFallingMonster() 
+{ 
+  if (fallingMonster != null) {
+    fallingMonster.setDead(true); 
+    score -= fallingGotAway; // this is if the monster fell of screen and was not kill so the player gets docked 50 points
+    fallingMonster = null;
+  }
+
+  // select new falling monster 
+  fallingMonster = pickNonDeadMonster(); 
+  if (fallingMonster == null) {
+    return;
+  }
+
+  fallingMonster.setSpeed(fmSpeed, fmRightAngle); 
+  // Domain keeps the moving sprite within specific screen area 
+  fallingMonster.setDomain(0, 0, width, height+100, Sprite.REBOUND);
+}
+void replaceFireMonster()
+{
+ fireball.setDead(true);
+ fireMonster = constpickNonDeadNonFallingMonster();
+}
+
+
+void explodeShip() 
+{
+  soundPlayer.playExplosion(); 
+  explosion.setPos(ship.getPos()); 
+  explosion.setFrameSequence(0, 16, 0.1, 1); 
+  ship.setDead(true);
+}
+
+void drawScore() 
+{
+  textSize(32); 
+  String msg = " Score: " + score; 
+  text(msg, 10, 30);
+}
+
+void drawGameOver() 
+{
+  gameOverSprite.setXY(width/2, height/2); 
+  gameOverSprite.setDead(false);
+}
+
+public void draw() 
+{
+  background(0); 
+  // change the color based on gamemode 
+  if(gameOver != true && gameMode == true)
+  stroke(255);
+  else if(gameMode == false)
+  stroke(0,255,255);
+  drawStars();
+  drawScore(); 
+  //gamemove conidiotns
+  if (gameOver == true)
+  {
+    shots = false;
+    stroke(255,0,0);
+    drawGameOver(); 
+    missile.setDead(true); // this is so the player doesnt instantly kill an enemy or lose score if they restart too soon
+    fireball.setDead(true);
+    // kill all monsters for the end screen 
+    for (int idx = 0; idx < monsters.length; idx++ ) 
+    {
+      Sprite monster = monsters[idx];
+      monster.setDead(true);
+    }
+    // restart condition 
+    if (kbController.isRestart())
+    {
+      fallingMonster = null; // so the monster doesnt spawn on the last available slot ie the one right after the one that killed the player 
+      resetMonsters(); // restets the grid  
+      score = 0; 
+      gameMode = true;
+      gameOver = false; 
+      shots = true;
+      fireballTimer = 50;
+      rndl = -20;
+      rndh = 70;
+      difficulty = 100; 
+      gameOverSprite.setDead(true); 
+      ship.setDead(false);
+    }
+    if (kbController.isHellH() && kbController.isHellE() && kbController.isHellL())
+    {
+      fallingMonster = null; // so the monster doesnt spawn on the last available slot ie the one right after the one that killed the player 
+      resetMonsters(); // restets the grid  
+      score = 0;
+      gameMode = false;
+      gameOver = false; 
+      shots = true;
+      fireballTimer = 10;
+      rndl = 10;
+      rndh = 80;
+      difficulty = 25; 
+      gameOverSprite.setDead(true); 
+      ship.setDead(false);
+    }
+  }
+  if (shots == true)
+  {
+  fireFireball();
+  if(fireball.isDead())
+  replaceFireMonster();
+  }
+  S4P.drawSprites();
+  yOffset++;
+}
